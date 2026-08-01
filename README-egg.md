@@ -461,13 +461,38 @@ Vérifie que tu es bien dans `saved-games/DCS.server/Missions/` et que
 
 ## 11. Ce que je n'ai pas pu vérifier
 
-Sans panel Pterodactyl ni Docker sur cette machine, voici honnêtement ce qui
-reste à valider chez toi :
+### Validé en production depuis
+
+Premier déploiement réel sur le panel, le 02/08/2026 :
+
+| Point | Résultat |
+|---|---|
+| **Build de l'image** | ✅ Passe. Wine `10.20 (Staging)` confirmé dans le conteneur. |
+| **Préfixe Wine + winetricks** | ✅ Les 5 composants s'installent, `vcrun2022` inclus — c'est celui qui exige un vrai display, donc Xvfb est validé de bout en bout. |
+| **Import de l'egg** | ✅ Importé, serveur créé, variables prises en compte. |
+| **Téléchargement DCS** | ✅ L'updater télécharge après correction (voir ci-dessous). |
+
+**Deux bugs trouvés en production, corrigés :**
+
+1. **`bash: /mnt/install/install.sh: Permission denied`** — la phase d'install
+   se terminait en quelques secondes sans exécuter une ligne. L'image déclarait
+   `USER container`, or Wings ne fixe pas `User` sur le conteneur d'install
+   (contrairement au conteneur de jeu) et écrit le script en root/0644. Cause
+   racine : une seule image pour deux rôles que Wings traite différemment.
+   La directive `USER` a été retirée ; un smoke-test vérifie désormais que
+   l'UID par défaut de l'image est bien 0.
+
+2. **L'updater échouait au premier passage.** Sur un préfixe neuf, la première
+   invocation de `DCS_updater.exe` ne fait que mettre à jour l'updater lui-même
+   puis se termine en quelques secondes, sans rien télécharger. Je traitais
+   l'absence de `DCS_server.exe` après cette passe comme fatale. `do_update()`
+   boucle maintenant sur plusieurs passes et remonte `autoupdate_log.txt` —
+   une passe en échec était auparavant totalement muette.
+
+### Ce qui reste à valider
 
 | Point | Statut |
 |---|---|
-| **Build de l'image** | Non construite (pas de Docker ici). Les versions Wine sont vérifiées comme réellement présentes dans le pool WineHQ bookworm. |
-| **Import de l'egg** | Structure validée par `validate-egg.js` contre le schéma PTDL_v2 (clés, sous-JSON de `config`, variables, règles Laravel, défauts cohérents avec leurs propres règles). Non importé dans un vrai panel. |
 | **Détection de démarrage** | La sentinelle est émise par mon script, donc déterministe — mais la sonde « port bindé » (`ss`) n'a pas été testée contre un vrai DCS. |
 | **Arrêt propre** | `wineserver -k15` puis `-k`. Je n'ai pas pu vérifier que DCS flushe bien son état sur SIGTERM. |
 | **`network.vault`** | Le mécanisme est confirmé par le code d'aterfax. La portabilité du fichier entre machines/préfixes n'est **pas** vérifiée. |
