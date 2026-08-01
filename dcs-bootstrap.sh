@@ -214,31 +214,79 @@ do_install() {
     do_update
 }
 
+DCS_UPDATE_PASSES="${DCS_UPDATE_PASSES:-5}"
+
+# The updater keeps its own diagnostics here. Without this, a failed pass is
+# completely silent on stdout, which is how the first real-world run of this
+# egg burned an hour with nothing to go on.
+dump_updater_log() {
+    local f
+    for f in "${DCS_INSTALL_DIR}/autoupdate_log.txt" "${DCS_INSTALL_DIR}/bin/autoupdate_log.txt"; do
+        if [ -f "$f" ]; then
+            log "---- tail of $(basename "$f") ----"
+            tail -n 40 "$f" | sed 's/^/[updater] /'
+            log "---- end ----"
+            return 0
+        fi
+    done
+    log "(no autoupdate_log.txt found yet)"
+}
+
+# One invocation of the updater, run to completion.
+run_updater_pass() {
+    # Run a COPY under a different name: the updater rewrites bin/DCS_updater.exe
+    # as part of its own self-update, and it cannot overwrite the binary it is
+    # currently executing. Workaround taken from the aterfax project.
+    cp -f "${DCS_BASE}/DCS_updater.exe" "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" 2>/dev/null \
+        || cp -f "${DCS_INSTALL_DIR}/bin/DCS_updater.exe" "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" \
+        || die "cannot stage the updater binary"
+
+    ( cd "${DCS_INSTALL_DIR}/bin" && wine DCS_updater_initial.exe --quiet update & )
+    sleep 5
+    # Match both names: the updater may hand off to the canonical binary
+    # mid-flight, and exiting the wait early would look like a failure.
+    wait_for_exe 'DCS_updater(_initial)?\.exe' "DCS updater"
+
+    # Restore the canonical name so the next pass (and the module installer)
+    # find it where DCS expects it.
+    mv -f "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" \
+          "${DCS_INSTALL_DIR}/bin/DCS_updater.exe" 2>/dev/null || true
+}
+
 # -----------------------------------------------------------------------------
 #  Phase 3 — run the updater
+# -----------------------------------------------------------------------------
+#  Several passes are EXPECTED, not a fallback: on a fresh prefix the first
+#  invocation only updates the updater itself and exits within seconds, well
+#  before downloading any game content. Treating that as fatal (as the first
+#  version of this script did) aborts the install before it ever starts.
 # -----------------------------------------------------------------------------
 do_update() {
     start_xvfb
     [ -d "${DCS_INSTALL_DIR}/bin" ] || die "no DCS install found at ${DCS_INSTALL_DIR}"
 
-    # The updater updates ITSELF first, and racing its own binary makes it
-    # fail. aterfax's workaround: run a copy under a different name, then
-    # restore the canonical name afterwards.
-    cp -f "${DCS_BASE}/DCS_updater.exe" "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" 2>/dev/null \
-        || cp -f "${DCS_INSTALL_DIR}/bin/DCS_updater.exe" "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" \
-        || die "cannot stage the updater binary"
+    local pass
+    for pass in $(seq 1 "$DCS_UPDATE_PASSES"); do
+        log "updater pass ${pass}/${DCS_UPDATE_PASSES} (a full install downloads tens of GB — be patient)"
+        run_updater_pass
 
-    log "running DCS updater (first install downloads tens of GB — be patient)"
-    ( cd "${DCS_INSTALL_DIR}/bin" && wine DCS_updater_initial.exe --quiet update & )
-    sleep 5
-    wait_for_exe DCS_updater_initial.exe "DCS updater"
+        if [ -f "${DCS_INSTALL_DIR}/bin/DCS_server.exe" ]; then
+            log "DCS_server.exe is present after pass ${pass}"
+            log "DCS updater finished"
+            return 0
+        fi
 
-    mv -f "${DCS_INSTALL_DIR}/bin/DCS_updater_initial.exe" "${DCS_INSTALL_DIR}/bin/DCS_updater.exe" 2>/dev/null || true
+        log "DCS_server.exe still missing after pass ${pass} — this is normal for the first pass (the updater self-updates and exits)."
+        dump_updater_log
+    done
 
-    [ -f "${DCS_INSTALL_DIR}/bin/DCS_server.exe" ] \
-        || die "DCS_server.exe not present after update — see the log above. If you see 'A debugger has been found running in your system', your Wine build is a non-staging build >= 10.3; rebuild the image with wine-staging."
-
-    log "DCS updater finished"
+    dump_updater_log
+    die "DCS_server.exe still absent after ${DCS_UPDATE_PASSES} updater passes.
+       Check the [updater] lines above. Common causes:
+         * 'A debugger has been found running in your system' -> the image is
+           not a wine-staging build (see the Dockerfile header).
+         * out of disk space.
+         * updates.digitalcombatsimulator.com unreachable from the node."
 }
 
 # -----------------------------------------------------------------------------
