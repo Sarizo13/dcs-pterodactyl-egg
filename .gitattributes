@@ -1,0 +1,14 @@
+# Tout ce dépôt est consommé par Linux (image Docker + conteneur Wings).
+# Sans ça, core.autocrlf=true sur une machine Windows peut committer des CRLF,
+# et un script shell en CRLF copié dans l'image échoue au démarrage avec :
+#     /bin/bash^M: bad interpreter: No such file or directory
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.js        text eol=lf
+*.md        text eol=lf
+Dockerfile  text eol=lf
+.gitignore  text eol=lf

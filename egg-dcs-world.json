@@ -1,0 +1,195 @@
+{
+    "_comment": "DCS World Dedicated Server egg. Requires the companion image built from the Dockerfile shipped alongside this file - see README-egg.md. Replace 'CHANGEME' in docker_images and in scripts.installation.container with your own registry namespace.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-08-01T21:35:32+0000",
+    "name": "DCS World Dedicated Server",
+    "author": "theopachecosarizo@gmail.com",
+    "description": "Eagle Dynamics DCS World dedicated server running under Wine + Xvfb. There is no native Linux dedicated server; this egg runs the Windows binaries on a pinned wine-staging build. First install downloads tens of gigabytes and takes hours. Read README-egg.md before importing.",
+    "features": [],
+    "docker_images": {
+        "Wine staging 10.20 (recommended, known-good)": "ghcr.io/CHANGEME/dcs-world-server:wine-10.20",
+        "Wine staging 11.10 (newer, untested with DCS)": "ghcr.io/CHANGEME/dcs-world-server:wine-11.10"
+    },
+    "file_denylist": [],
+    "startup": "dcs-server-run",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \">>> DCS SERVER READY <<<\"\r\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\r\n# =============================================================================\r\n#  Pterodactyl install script — DCS World Dedicated Server\r\n# =============================================================================\r\n#  Runs in the INSTALL container (not the game container):\r\n#    * image      : the same DCS image (it is the only one that has Wine)\r\n#    * user       : root\r\n#    * server vol : /mnt/server\r\n#\r\n#  Everything slow and fragile happens here, on purpose:\r\n#  Wine prefix creation, winetricks, and the multi-tens-of-GB DCS download.\r\n#  The runtime container then only has to start DCS_server.exe.\r\n#\r\n#  EXPECT THIS TO RUN FOR A LONG TIME. A first install with one terrain is\r\n#  routinely 60–120+ minutes depending on your link. Do not cancel it; the\r\n#  panel install log is the place to watch progress.\r\n# =============================================================================\r\nset -uo pipefail\r\n\r\necho \"================================================================\"\r\necho \" DCS World Dedicated Server — Pterodactyl install\"\r\necho \" Wine:     $(wine --version 2>/dev/null || echo 'NOT FOUND')\"\r\necho \" Wine pin: $(cat /etc/dcs-wine-pin 2>/dev/null || echo 'unknown')\"\r\necho \" Branch:   ${DCS_BRANCH:-release}\"\r\necho \" Modules:  ${DCS_MODULES:-<none>}\"\r\necho \"================================================================\"\r\n\r\nif [ ! -x /usr/local/bin/dcs-bootstrap ]; then\r\n    echo \"FATAL: /usr/local/bin/dcs-bootstrap is missing.\"\r\n    echo \"The install container MUST use the DCS egg image — it is the only\"\r\n    echo \"one that ships Wine and the bootstrap logic. Check the egg's\"\r\n    echo \"Install Container setting.\"\r\n    exit 1\r\nfi\r\n\r\nexport DCS_BASE=/mnt/server\r\nmkdir -p \"$DCS_BASE\"\r\n\r\n# --- optional clean reinstall ------------------------------------------------\r\n# Deliberately narrow: it removes the Wine prefix (which contains the DCS\r\n# install AND the Saved Games write directory). Missions and network.vault live\r\n# in there, so this is destructive. It only fires when explicitly requested.\r\nif [ \"${FORCE_REINSTALL:-0}\" = \"1\" ]; then\r\n    echo \"FORCE_REINSTALL=1 — removing the existing Wine prefix and DCS install.\"\r\n    echo \"This deletes missions and Config/network.vault. Back them up first if\"\r\n    echo \"you did not mean to do this.\"\r\n    rm -rf \"${DCS_BASE}/.wine\" \"${DCS_BASE}/DCS_updater.exe\" \"${DCS_BASE}/DCS_updater_64bit.zip\"\r\nfi\r\n\r\n# dcs-bootstrap drops from root to the container UID before touching Wine, so\r\n# the prefix is owned by — and named after — the user that will run the server.\r\nDCS_BASE=\"$DCS_BASE\" \\\r\nDCS_BRANCH=\"${DCS_BRANCH:-release}\" \\\r\nDCS_MODULES=\"${DCS_MODULES:-}\" \\\r\nCONTAINER_UID=\"${CONTAINER_UID:-988}\" \\\r\nCONTAINER_GID=\"${CONTAINER_GID:-988}\" \\\r\n    /usr/local/bin/dcs-bootstrap install\r\nRC=$?\r\n\r\nif [ \"$RC\" -ne 0 ]; then\r\n    echo \"----------------------------------------------------------------\"\r\n    echo \"INSTALL FAILED (exit ${RC}).\"\r\n    echo \"Common causes:\"\r\n    echo \"  * 'A debugger has been found running in your system'\"\r\n    echo \"      -> the image was built with a non-staging Wine >= 10.3.\"\r\n    echo \"         Rebuild with wine-staging (see the Dockerfile header).\"\r\n    echo \"  * out of disk space — DCS plus one terrain needs ~120 GB free.\"\r\n    echo \"  * the updater could not reach updates.digitalcombatsimulator.com.\"\r\n    echo \"----------------------------------------------------------------\"\r\n    exit \"$RC\"\r\nfi\r\n\r\n# Re-assert ownership: the updater creates a deep tree and Wings will run the\r\n# game container as CONTAINER_UID.\r\nchown -R \"${CONTAINER_UID:-988}:${CONTAINER_GID:-988}\" \"$DCS_BASE\" 2>/dev/null || true\r\n\r\necho \"================================================================\"\r\necho \" Install complete.\"\r\necho \"\"\r\necho \" NEXT STEP — you are not done yet:\"\r\necho \" DCS will not serve players until Config/network.vault exists, and\"\r\necho \" that file can only be produced by logging into your Eagle Dynamics\"\r\necho \" account once, interactively. Set VNC_ENABLED=1, start the server,\"\r\necho \" connect over VNC and log in with 'save credentials' ticked.\"\r\necho \" Full walkthrough in README-egg.md.\"\r\necho \"================================================================\"\r\nexit 0\r\n",
+            "container": "ghcr.io/CHANGEME/dcs-world-server:wine-10.20",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "DCS branch",
+            "description": "Which DCS branch to install: 'release' (recommended) or 'openbeta'. Eagle Dynamics merged Open Beta into the main release line in 2024, so 'openbeta' is retained for legacy installs only and may resolve to the same build.",
+            "env_variable": "DCS_BRANCH",
+            "default_value": "release",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:release,openbeta"
+        },
+        {
+            "name": "Server name",
+            "description": "Name shown in the DCS multiplayer server browser.",
+            "env_variable": "DCS_SERVER_NAME",
+            "default_value": "DCS Server",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64"
+        },
+        {
+            "name": "Server password",
+            "description": "Join password. Leave empty for a public server.",
+            "env_variable": "DCS_SERVER_PASSWORD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:64"
+        },
+        {
+            "name": "Max players (slots)",
+            "description": "Maximum simultaneous players.",
+            "env_variable": "DCS_MAX_PLAYERS",
+            "default_value": "16",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,128"
+        },
+        {
+            "name": "Modules / terrains",
+            "description": "Whitespace-separated module IDs installed at install time, e.g. 'SYRIA_terrain MARIANAISLANDS_terrain SUPERCARRIER'. Valid IDs include CAUCASUS_terrain, NEVADA_terrain, NORMANDY_terrain, PERSIANGULF_terrain, THECHANNEL_terrain, SYRIA_terrain, MARIANAISLANDS_terrain, FALKLANDS_terrain, SINAIMAP_terrain, KOLA_terrain, AFGHANISTAN_terrain, IRAQ_terrain, GERMANYCW_terrain, MARIANAISLANDSWWII_terrain, SUPERCARRIER, WWII-ARMOUR. Each terrain is tens of GB. Changing this after install requires a reinstall.",
+            "env_variable": "DCS_MODULES",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|regex:/^[A-Za-z0-9_ -]*$/"
+        },
+        {
+            "name": "Auto-update on boot",
+            "description": "1 = run the DCS updater before every start. Default 0. A DCS update can take hours and can break a working install, so leaving this off and updating deliberately is safer. See README-egg.md for the manual update and rollback procedure.",
+            "env_variable": "DCS_AUTO_UPDATE",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1"
+        },
+        {
+            "name": "Startup mission (.miz)",
+            "description": "File name of a mission located in saved-games/<write dir>/Missions to load at startup. Leave empty to keep the mission list already configured in the WebGUI.",
+            "env_variable": "DCS_MISSION",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|regex:/^[A-Za-z0-9 ._()-]+\\.miz$/"
+        },
+        {
+            "name": "WebGUI port",
+            "description": "TCP port for the DCS web control panel. Needs its own Pterodactyl allocation to be reachable from outside. Optional - the server runs headless without it.",
+            "env_variable": "DCS_WEBGUI_PORT",
+            "default_value": "8088",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1024,65535"
+        },
+        {
+            "name": "Write directory",
+            "description": "Name of the DCS write folder under Saved Games (passed to DCS_server.exe as -w). Pinning it keeps the SFTP mission path stable; do not change it on a running server unless you move your files too.",
+            "env_variable": "DCS_WRITE_DIR",
+            "default_value": "DCS.server",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|regex:/^[A-Za-z0-9._-]+$/"
+        },
+        {
+            "name": "Manage serverSettings.lua",
+            "description": "1 = re-apply server name, password, slots, port and WebGUI port from these variables on every boot. Set to 0 if you prefer to manage everything from the DCS WebGUI.",
+            "env_variable": "DCS_MANAGE_SETTINGS",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1"
+        },
+        {
+            "name": "Enable VNC (first-time ED login)",
+            "description": "1 = expose the internal Xvfb display over VNC so you can log into your Eagle Dynamics account once and generate Config/network.vault. Needs its own allocation. Turn this back off once the vault file exists.",
+            "env_variable": "VNC_ENABLED",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1"
+        },
+        {
+            "name": "VNC port",
+            "description": "TCP port for the temporary VNC session. Requires a matching allocation.",
+            "env_variable": "VNC_PORT",
+            "default_value": "5900",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1024,65535"
+        },
+        {
+            "name": "VNC password",
+            "description": "Password for the temporary VNC session. Strongly recommended: a passwordless VNC on a public port hands over full control of the container.",
+            "env_variable": "VNC_PASSWORD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:64"
+        },
+        {
+            "name": "Force reinstall",
+            "description": "1 = wipe the Wine prefix (DCS install AND Saved Games) on the next panel reinstall. Destructive: missions and network.vault are deleted. Back up over SFTP first.",
+            "env_variable": "FORCE_REINSTALL",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1"
+        },
+        {
+            "name": "Readiness regex (advanced)",
+            "description": "Optional extra readiness signal: an egrep pattern matched against dcs.log. The port-binding probe already handles the normal case; only set this if your server binds late.",
+            "env_variable": "DCS_READY_REGEX",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:200"
+        },
+        {
+            "name": "Stop timeout (seconds)",
+            "description": "How long to wait for DCS to shut down gracefully before force-killing wineserver.",
+            "env_variable": "DCS_STOP_TIMEOUT",
+            "default_value": "90",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:10,600"
+        },
+        {
+            "name": "Container UID",
+            "description": "Must match system.user.uid in your wings config.yml (Pterodactyl default 988). Wine derives its per-user directory name from this UID's passwd entry, so a mismatch between install and runtime changes the Saved Games path.",
+            "env_variable": "CONTAINER_UID",
+            "default_value": "988",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|integer|between:1,65535"
+        },
+        {
+            "name": "Container GID",
+            "description": "Must match system.user.gid in your wings config.yml (default 988).",
+            "env_variable": "CONTAINER_GID",
+            "default_value": "988",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|integer|between:1,65535"
+        }
+    ]
+}

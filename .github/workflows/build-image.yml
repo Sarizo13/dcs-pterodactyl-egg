@@ -1,0 +1,84 @@
+name: Build DCS server image
+
+# Builds one image tag per pinned Wine version. The tag names must match the
+# `docker_images` entries in egg-dcs-world.json.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - dcs-bootstrap.sh
+      - dcs-server-run.sh
+      - .github/workflows/build-image.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Known-good: carries the DCS_updater debugger-detection fix and
+          # predates the Wine 11.0 ntsync switch.
+          - tag: wine-10.20
+            wine_version: "10.20~bookworm-1"
+          # Newer staging, provided so you can test/roll forward. Not validated
+          # against DCS.
+          - tag: wine-11.10
+            wine_version: "11.10~bookworm-1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects uppercase characters in image names, but
+      # github.repository_owner preserves the account's original case. A user
+      # named e.g. "TheoPacheco" would otherwise get "invalid reference format"
+      # on push.
+      - name: Compute lowercase owner
+        id: owner
+        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ steps.owner.outputs.name }}/dcs-world-server:${{ matrix.tag }}
+          build-args: |
+            WINE_BRANCH=staging
+            WINE_VERSION=${{ matrix.wine_version }}
+          cache-from: type=gha,scope=${{ matrix.tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
+
+      - name: Smoke-test the image
+        run: |
+          IMG=ghcr.io/${{ steps.owner.outputs.name }}/dcs-world-server:${{ matrix.tag }}
+
+          # Wine must be the staging branch: DCS_updater.exe falsely detects a
+          # debugger on WineHQ standard builds >= 10.3.
+          docker run --rm "$IMG" wine --version | tee /tmp/v
+          grep -qi staging /tmp/v || { echo "::error::not a wine-staging build"; exit 1; }
+
+          # Xvfb must be present and actually able to start headless.
+          docker run --rm "$IMG" bash -c \
+            'Xvfb :99 -screen 0 1024x768x16 -nolisten tcp -ac & \
+             for i in $(seq 1 50); do [ -S /tmp/.X11-unix/X99 ] && exit 0; sleep 0.2; done; exit 1' \
+            || { echo "::error::Xvfb failed to start"; exit 1; }
+
+          # The scripts the egg depends on must be executable.
+          docker run --rm "$IMG" bash -c \
+            'test -x /entrypoint.sh && test -x /usr/local/bin/dcs-bootstrap && test -x /usr/local/bin/dcs-server-run'

@@ -1,0 +1,19 @@
+# OS / éditeurs
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Node (build-egg.js / validate-egg.js n'ont aucune dépendance, mais au cas où)
+node_modules/
+package-lock.json
+
+# Artefacts de test locaux
+*.log
+*.tmp
+*.bak
+
+# Ne JAMAIS committer ceci : credentials Eagle Dynamics du serveur DCS.
+# Le fichier vit dans le volume Pterodactyl, pas dans le repo.
+network.vault
