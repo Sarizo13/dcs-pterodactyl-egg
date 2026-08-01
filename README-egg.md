@@ -80,30 +80,41 @@ lui-même) viennent de ce projet.
 Pterodactyl ne sait que **tirer** une image, jamais la construire. Il faut donc
 la publier sur un registre accessible depuis le nœud Wings.
 
-### Via GitHub Actions (recommandé)
+### Via GitHub Actions (en place)
 
-Pousse ce dossier dans un dépôt GitHub. Le workflow construit deux tags :
+Ce dépôt est publié sur https://github.com/Sarizo13/dcs-pterodactyl-egg. Tout
+push touchant le `Dockerfile` ou les scripts déclenche le workflow, qui
+construit et pousse deux tags :
 
-- `ghcr.io/<toi>/dcs-world-server:wine-10.20` ← **recommandé**
-- `ghcr.io/<toi>/dcs-world-server:wine-11.10` ← plus récent, non validé
+- `ghcr.io/sarizo13/dcs-world-server:wine-10.20` ← **recommandé**
+- `ghcr.io/sarizo13/dcs-world-server:wine-11.10` ← plus récent, non validé
 
-Rends le package **public** (Packages → dcs-world-server → Change visibility),
-sinon il faut configurer les credentials de registre sur le nœud.
+Le namespace est en **minuscules** : les registres refusent les majuscules dans
+un nom d'image, alors que le compte GitHub s'écrit « Sarizo13 ». Le workflow
+force la casse lui-même.
 
-### À la main
+Après le premier build réussi, rends le package **public** :
+profil → Packages → `dcs-world-server` → Package settings → Change visibility.
+Il est privé par défaut et Wings ne pourra pas le tirer. À défaut, il faut
+configurer des credentials de registre sur le nœud.
+
+L'image ne contient **pas** DCS — seulement Wine, Xvfb et les scripts (~2 Go).
+DCS est téléchargé pendant la phase d'install, dans le volume du serveur.
+
+### À la main (si besoin)
 
 ```bash
-docker build -t ghcr.io/<toi>/dcs-world-server:wine-10.20 \
+docker build -t ghcr.io/sarizo13/dcs-world-server:wine-10.20 \
   --build-arg WINE_BRANCH=staging \
   --build-arg WINE_VERSION=10.20~bookworm-1 .
-docker push ghcr.io/<toi>/dcs-world-server:wine-10.20
+docker push ghcr.io/sarizo13/dcs-world-server:wine-10.20
 ```
 
 ### Puis, dans l'egg
 
-Remplace les trois occurrences de `CHANGEME` dans `egg-dcs-world.json`
-(`docker_images` ×2 et `scripts.installation.container`) par ton namespace.
-`node validate-egg.js` te préviendra tant qu'il en reste.
+Déjà fait : `egg-dcs-world.json` pointe sur `ghcr.io/sarizo13/...`. Si tu
+changes de namespace, édite `IMAGE` dans `build-egg.js` puis relance
+`node build-egg.js && node validate-egg.js`.
 
 > **`CONTAINER_UID` / `CONTAINER_GID`** — l'image crée un utilisateur en UID 988
 > (défaut Pterodactyl). Si ton `wings config.yml` utilise un autre

@@ -18,8 +18,9 @@ const installScript = fs
   .replace(/\r\n/g, "\n")
   .replace(/\n/g, "\r\n");
 
-// Replace CHANGEME with your own registry namespace before importing.
-const IMAGE = "ghcr.io/CHANGEME/dcs-world-server";
+// GHCR namespace. Must be lowercase: registries reject uppercase in image
+// names, and the GitHub account here is "Sarizo13".
+const IMAGE = "ghcr.io/sarizo13/dcs-world-server";
 
 const egg = {
   _comment:
