@@ -68,13 +68,24 @@ jobs:
         run: |
           IMG=ghcr.io/${{ steps.owner.outputs.name }}/dcs-world-server:${{ matrix.tag }}
 
+          # REGRESSION GUARD. Wings does not set User on the INSTALL container,
+          # so it inherits the image default. When this image declared
+          # `USER container`, every install died instantly with
+          # "bash: /mnt/install/install.sh: Permission denied" because the
+          # script is written as root with mode 0644. The image default MUST
+          # stay root.
+          uid=$(docker run --rm "$IMG" id -u)
+          [ "$uid" = "0" ] || { echo "::error::image default user must be root, got uid $uid — installs will fail"; exit 1; }
+
           # Wine must be the staging branch: DCS_updater.exe falsely detects a
           # debugger on WineHQ standard builds >= 10.3.
-          docker run --rm "$IMG" wine --version | tee /tmp/v
+          # Run as the real runtime UID (Wings forces 988), not as root.
+          docker run --rm --user 988:988 "$IMG" wine --version | tee /tmp/v
           grep -qi staging /tmp/v || { echo "::error::not a wine-staging build"; exit 1; }
 
-          # Xvfb must be present and actually able to start headless.
-          docker run --rm "$IMG" bash -c \
+          # Xvfb must be present and actually able to start headless, as the
+          # unprivileged runtime user.
+          docker run --rm --user 988:988 "$IMG" bash -c \
             'Xvfb :99 -screen 0 1024x768x16 -nolisten tcp -ac & \
              for i in $(seq 1 50); do [ -S /tmp/.X11-unix/X99 ] && exit 0; sleep 0.2; done; exit 1' \
             || { echo "::error::Xvfb failed to start"; exit 1; }

@@ -162,6 +162,29 @@ RUN wget -qO /usr/local/bin/winetricks \
 RUN groupadd -g ${CONTAINER_GID} container \
  && useradd -m -d /home/container -u ${CONTAINER_UID} -g ${CONTAINER_GID} -s /bin/bash container
 
+# -----------------------------------------------------------------------------
+#  Deliberately NO `USER container` directive.
+# -----------------------------------------------------------------------------
+#  This one image fills two roles, and Wings treats them differently:
+#
+#    * GAME container    — Wings sets conf.User explicitly
+#                          ("<uid>:<gid>" from system.user in config.yml), so a
+#                          USER directive here would be ignored anyway.
+#
+#    * INSTALL container — Wings does NOT set User, so Docker honours the
+#                          image's USER. It also writes the install script as
+#                          root with mode 0644 into a private temp dir. With
+#                          `USER container` the install therefore died on
+#                          `bash: /mnt/install/install.sh: Permission denied`
+#                          before executing a single line — which is exactly
+#                          what happened on the first real deployment.
+#
+#  Running the install phase as root is the norm (parkervcp/installers images
+#  declare no USER either). dcs-bootstrap drops to CONTAINER_UID itself before
+#  touching Wine, so the prefix is still created by, and named after, the user
+#  that will run the server.
+# -----------------------------------------------------------------------------
+
 ENV USER=container \
     HOME=/home/container \
     WINEARCH=win64 \
@@ -179,7 +202,6 @@ COPY dcs-bootstrap.sh   /usr/local/bin/dcs-bootstrap
 COPY dcs-server-run.sh  /usr/local/bin/dcs-server-run
 RUN chmod 755 /entrypoint.sh /usr/local/bin/dcs-bootstrap /usr/local/bin/dcs-server-run
 
-USER container
 WORKDIR /home/container
 
 # DCS game port (TCP+UDP) and WebGUI. Documentation only — Wings publishes the
