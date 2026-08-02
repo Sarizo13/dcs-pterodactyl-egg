@@ -75,6 +75,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 #              with --unattended.
 #  x11vnc    : optional, used only for the one-time interactive ED login that
 #              produces Config/network.vault (see README-egg.md).
+#  openbox   : started only alongside VNC. With no window manager the display
+#              has no focus management (X falls back to PointerRoot), which
+#              makes typing credentials into the DCS login form unreliable —
+#              precisely the one step that must not be flaky. Idle cost is
+#              zero when VNC is off.
 #  winbind   : provides ntlm_auth, which Wine wants for network auth.
 #  cabextract: required by winetricks to unpack MS redistributables.
 #  iproute2  : `ss`, used by the readiness probe in dcs-server-run.
@@ -92,6 +97,7 @@ RUN dpkg --add-architecture i386 \
         xvfb \
         xauth \
         x11vnc \
+        openbox \
         winbind \
         libfreetype6 \
         libfreetype6:i386 \

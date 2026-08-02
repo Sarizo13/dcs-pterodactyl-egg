@@ -102,6 +102,16 @@ start_xvfb || exit 1
 #  you a temporary window onto the same Xvfb display. See README-egg.md.
 # =============================================================================
 if [ "$VNC_ENABLED" = "1" ]; then
+    # A window manager is only needed for this interactive session. Without one
+    # X uses PointerRoot focus, so keystrokes go to whatever the pointer
+    # happens to be over — which makes typing an email and password into the
+    # DCS login form unreliable. openbox gives the login window real focus.
+    if command -v openbox >/dev/null 2>&1; then
+        log "starting openbox (focus management for the VNC session)"
+        openbox >/dev/null 2>&1 &
+        sleep 1
+    fi
+
     vnc_args=(-display "$DISPLAY" -forever -shared -rfbport "$VNC_PORT" -bg -quiet)
     if [ -n "$VNC_PASSWORD" ]; then
         mkdir -p "${DCS_BASE}/.vnc"
@@ -397,6 +407,7 @@ shutdown() {
     kill "$TAIL_PID" 2>/dev/null
     # x11vnc was started with -bg, so it daemonised away from our $!.
     pkill -x x11vnc 2>/dev/null
+    pkill -x openbox 2>/dev/null
     [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null
     log "stopped."
     exit 0
