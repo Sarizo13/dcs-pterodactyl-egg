@@ -114,13 +114,66 @@ stop_xvfb() {
 
 # Block until every DCS/Wine process has settled. `wine ... &` returns long
 # before the Windows process is actually done, so waiting on $! is not enough.
+#
+# $3 (optional) is a directory to watch for growth. Tracking liveness alone is
+# not enough: the updater can sit alive and idle forever behind a modal dialog
+# on the Xvfb display that nobody can click, and the original version of this
+# function happily printed "waiting... 2750s elapsed" the whole time without
+# ever noticing that not a single byte had been written.
+DCS_STALL_WARN_SECS="${DCS_STALL_WARN_SECS:-600}"    # warn after 10 min flat
+DCS_STALL_ABORT_SECS="${DCS_STALL_ABORT_SECS:-1800}" # give up after 30 min flat
+DCS_POLL_SECS="${DCS_POLL_SECS:-10}"                 # console heartbeat period
+DCS_SIZE_EVERY="${DCS_SIZE_EVERY:-6}"                # du sampling, in ticks
+
 wait_for_exe() {
-    local exe="$1" label="${2:-$1}" start elapsed
+    local exe="$1" label="${2:-$1}" watch="${3:-}"
+    local start now elapsed tick=0 size_note=""
+    local last_size=-1 cur_size stalled_since warned=0
+
     start="$(date +%s)"
+    stalled_since="$start"
+
     while pgrep -f "$exe" >/dev/null 2>&1; do
-        elapsed=$(( $(date +%s) - start ))
-        log "waiting for ${label}... ${elapsed}s elapsed"
-        sleep 10
+        now="$(date +%s)"
+        elapsed=$(( now - start ))
+
+        # du over a multi-GB tree is not free; sample it once a minute.
+        if [ -n "$watch" ] && [ $(( tick % DCS_SIZE_EVERY )) -eq 0 ]; then
+            cur_size="$(du -sm "$watch" 2>/dev/null | cut -f1)"
+            [ -n "$cur_size" ] || cur_size=0
+            size_note=" — ${cur_size} MiB on disk"
+
+            if [ "$cur_size" != "$last_size" ]; then
+                last_size="$cur_size"
+                stalled_since="$now"
+                warned=0
+            elif [ $(( now - stalled_since )) -ge "$DCS_STALL_WARN_SECS" ] && [ "$warned" -eq 0 ]; then
+                warned=1
+                log "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+                log "STALLED: ${label} has been running for ${elapsed}s but the"
+                log "install directory has not grown in $(( now - stalled_since ))s."
+                log "It is alive but downloading nothing. The usual cause is a"
+                log "modal dialog waiting on the Xvfb display that nobody can"
+                log "click — set VNC_ENABLED=1, restart and look at the screen."
+                log "Check the [updater] lines below for the reason."
+                log "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+                dump_updater_log
+            fi
+
+            # A blocked updater would otherwise hold this loop forever, and the
+            # retry logic in do_update() would never get a turn. Kill it so the
+            # failure is bounded and reported instead of silently eternal.
+            if [ $(( now - stalled_since )) -ge "$DCS_STALL_ABORT_SECS" ]; then
+                log "ABORTING ${label}: no disk growth for $(( now - stalled_since ))s."
+                pkill -f "$exe" 2>/dev/null
+                sleep 5
+                return 1
+            fi
+        fi
+
+        log "waiting for ${label}... ${elapsed}s elapsed${size_note}"
+        tick=$(( tick + 1 ))
+        sleep "$DCS_POLL_SECS"
     done
 }
 
@@ -245,7 +298,7 @@ run_updater_pass() {
     sleep 5
     # Match both names: the updater may hand off to the canonical binary
     # mid-flight, and exiting the wait early would look like a failure.
-    wait_for_exe 'DCS_updater(_initial)?\.exe' "DCS updater"
+    wait_for_exe 'DCS_updater(_initial)?\.exe' "DCS updater" "$DCS_INSTALL_DIR"
 
     # Restore the canonical name so the next pass (and the module installer)
     # find it where DCS expects it.
@@ -306,7 +359,7 @@ do_modules() {
     # shellcheck disable=SC2086
     ( cd "${DCS_INSTALL_DIR}/bin" && wine DCS_updater.exe install ${DCS_MODULES} & )
     sleep 5
-    wait_for_exe DCS_updater.exe "module installer"
+    wait_for_exe DCS_updater.exe "module installer" "$DCS_INSTALL_DIR"
     log "module installation finished"
 }
 

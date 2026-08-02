@@ -83,6 +83,15 @@ jobs:
           docker run --rm --user 988:988 "$IMG" wine --version | tee /tmp/v
           grep -qi staging /tmp/v || { echo "::error::not a wine-staging build"; exit 1; }
 
+          # Wine derives the filesystem's filename encoding from LC_CTYPE.
+          # Under the C/POSIX locale it is ASCII, and DCS livery folders with
+          # accented names ("...Agressor Nº410...") then fail to be created,
+          # killing the download on its first pass. Declaring ENV LANG without
+          # generating the locale silently leaves you in C — assert the real
+          # effective charmap, as the runtime user.
+          cs=$(docker run --rm --user 988:988 "$IMG" locale charmap)
+          [ "$cs" = "UTF-8" ] || { echo "::error::locale charmap is '$cs', expected UTF-8 — non-ASCII DCS filenames will fail"; exit 1; }
+
           # Xvfb must be present and actually able to start headless, as the
           # unprivileged runtime user.
           docker run --rm --user 988:988 "$IMG" bash -c \

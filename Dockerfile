@@ -185,13 +185,35 @@ RUN groupadd -g ${CONTAINER_GID} container \
 #  that will run the server.
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+#  Locale — must be a REAL, generated UTF-8 locale.
+# -----------------------------------------------------------------------------
+#  POSIX ties the filesystem's filename encoding to LC_CTYPE. Under the default
+#  C/POSIX locale that encoding is pure ASCII, so Wine cannot create any file
+#  whose Windows name contains a non-ASCII character. DCS ships livery folders
+#  with accented names, and the very first download pass dies on one:
+#
+#      Can't create directory ...\C-101CC\I Brigada Aerea - Chile Early
+#      Agressor Nº410 N.1 A-36 HALCON\: (2) File not found.
+#
+#  Declaring ENV LANG is NOT sufficient: if the locale has not been generated,
+#  glibc silently falls back to C and everything looks fine until a non-ASCII
+#  filename shows up. That is exactly how this bit the first deployment.
+# -----------------------------------------------------------------------------
+RUN sed -i 's/^# *\(en_US\.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+ && locale-gen en_US.UTF-8 \
+ && update-locale LANG=en_US.UTF-8 \
+ && [ "$(LC_ALL=en_US.UTF-8 locale charmap)" = "UTF-8" ]
+
 ENV USER=container \
     HOME=/home/container \
     WINEARCH=win64 \
     WINEDEBUG=-all \
     DISPLAY=:99 \
     XVFB_RES=1024x768x16 \
-    LANG=en_US.UTF-8
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
 
 # mscoree/mshtml disabled: stops Wine from popping the blocking "install Mono /
 # Gecko?" dialogs on first prefix creation, which would hang a headless boot.
