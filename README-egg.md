@@ -470,9 +470,14 @@ Premier déploiement réel sur le panel, le 02/08/2026 :
 | **Build de l'image** | ✅ Passe. Wine `10.20 (Staging)` confirmé dans le conteneur. |
 | **Préfixe Wine + winetricks** | ✅ Les 5 composants s'installent, `vcrun2022` inclus — c'est celui qui exige un vrai display, donc Xvfb est validé de bout en bout. |
 | **Import de l'egg** | ✅ Importé, serveur créé, variables prises en compte. |
-| **Téléchargement DCS** | ✅ L'updater télécharge après correction (voir ci-dessous). |
+| **Téléchargement DCS** | ✅ 20,7 Go de base + `CAUCASUS_terrain`, ~31,8 Go installés au total. |
+| **Chemins Wine / Saved Games** | ✅ `drive_c/users/container` résolu dynamiquement, symlink `saved-games` opérationnel. |
+| **Remontée des logs DCS** | ✅ Le `tail -F` de `dcs.log` alimente bien la console du panel. |
+| **`network.vault`** | ✅ Généré par login interactif via VNC, serveur authentifié ensuite. |
+| **Détection de démarrage** | ✅ La sonde « port bindé » puis la sentinelle font passer le serveur en *online*. |
+| **Bout en bout** | ✅ **Joueurs connectés en multijoueur.** |
 
-**Deux bugs trouvés en production, corrigés :**
+**Trois bugs trouvés en production, corrigés :**
 
 1. **`bash: /mnt/install/install.sh: Permission denied`** — la phase d'install
    se terminait en quelques secondes sans exécuter une ligne. L'image déclarait
@@ -489,15 +494,26 @@ Premier déploiement réel sur le panel, le 02/08/2026 :
    boucle maintenant sur plusieurs passes et remonte `autoupdate_log.txt` —
    une passe en échec était auparavant totalement muette.
 
+3. **Locale non générée → Wine incapable de créer les noms non-ASCII.** Le
+   téléchargement mourait à 8,9 s sur un dossier de livrée nommé
+   `...Agressor Nº410 N.1 A-36 HALCON`, puis les passes suivantes restaient
+   bloquées sur `Checking downloads...` sans écrire un octet. POSIX lie
+   l'encodage des noms de fichiers à `LC_CTYPE` ; l'image déclarait
+   `ENV LANG=en_US.UTF-8` sans jamais lancer `locale-gen`, donc glibc retombait
+   sur C/POSIX, en ASCII pur. La locale est maintenant générée, le **build
+   échoue** si `locale charmap` ne vaut pas `UTF-8`, et `wait_for_exe`
+   échantillonne la taille du répertoire d'install pour transformer un blocage
+   silencieux en avertissement puis en abandon.
+
 ### Ce qui reste à valider
 
 | Point | Statut |
 |---|---|
-| **Détection de démarrage** | La sentinelle est émise par mon script, donc déterministe — mais la sonde « port bindé » (`ss`) n'a pas été testée contre un vrai DCS. |
-| **Arrêt propre** | `wineserver -k15` puis `-k`. Je n'ai pas pu vérifier que DCS flushe bien son état sur SIGTERM. |
-| **`network.vault`** | Le mécanisme est confirmé par le code d'aterfax. La portabilité du fichier entre machines/préfixes n'est **pas** vérifiée. |
-| **Terrains payants** | Le flux `DCS_updater.exe install <ID>` vient d'aterfax. Non testé de bout en bout avec un module payant. |
+| **Arrêt propre** | `wineserver -k15` puis `-k`. Je n'ai pas vérifié que DCS flushe bien son état sur SIGTERM. |
+| **Portabilité de `network.vault`** | Le fichier est bien généré et fonctionne sur place. Le **recopier** vers une autre machine ou un autre préfixe n'est pas testé. |
+| **Terrains payants** | `CAUCASUS_terrain` (gratuit) s'installe. Aucun module payant testé de bout en bout. |
 | **UID ≠ 988** | Le code gère le cas (création d'entrée passwd, résolution dynamique du dossier Wine, symlink stable). Non testé. |
+| **Phase d'install** | Corrigée mais jamais rejouée : ce serveur a été bâti par le chemin de secours du runtime. Le prochain serveur créé validera la phase d'install proprement. |
 
 En revanche, testés localement et corrigés suite à ces tests :
 
