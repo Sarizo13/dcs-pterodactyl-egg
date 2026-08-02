@@ -340,7 +340,14 @@ log "wine pid: ${WINE_PID}"
 
 # DCS writes to Logs/dcs.log, not to stdout. Wings only ever sees stdout, so
 # without this tail the console stays empty and no log-based detection works.
-tail -F "$DCS_LOG" 2>/dev/null &
+#
+# `-n +1` is load-bearing. Plain `tail -F` starts from the LAST 10 lines, and
+# DCS writes several hundred lines — including the entire plugin/mod
+# enumeration — before this tail can attach. The start-of-boot section, which
+# is precisely where you learn why a mod failed to load, never reached the
+# console at all. Since the log is truncated just above, replaying from line 1
+# costs nothing.
+tail -n +1 -F "$DCS_LOG" 2>/dev/null &
 TAIL_PID=$!
 
 # =============================================================================
